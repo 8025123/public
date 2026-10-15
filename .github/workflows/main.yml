@@ -1,0 +1,49 @@
+name: Build dfroot.ko (iQOO Neo8 / android12-5.10)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+env:
+  KDIR: /opt/ddk/kdir/android12-5.10
+  TARGET_VERMAGIC: 5.10.246-gki-gb142569a7856
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:android12-5.10-20260828
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show DDK / KDIR info
+        run: |
+          echo "KDIR=$KDIR"
+          ls -la $KDIR | head -20
+          echo "--- kernel.release ---"
+          cat $KDIR/include/config/kernel.release || true
+          echo "--- Module.symvers lines ---"
+          wc -l $KDIR/Module.symvers || true
+
+      - name: Build dfroot.ko
+        working-directory: lkm
+        run: |
+          make -j$(nproc) KDIR=$KDIR
+          ls -la dfroot.ko
+          echo "--- built vermagic ---"
+          strings dfroot.ko | grep -E '^vermagic=' || true
+
+      - name: Patch vermagic -> ${{ env.TARGET_VERMAGIC }}
+        run: |
+          python3 patch_vermagic.py lkm/dfroot.ko "$TARGET_VERMAGIC"
+          echo "--- final vermagic ---"
+          strings lkm/dfroot.ko | grep -E '^vermagic='
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dfroot-android12-5.10-246
+          path: lkm/dfroot.ko
+          if-no-files-found: error
